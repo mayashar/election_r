@@ -1,0 +1,1095 @@
+---
+title: 'Predicting Presidential General Election Outcomes at County-Level Using Machine Learning Techniques '
+author: "Group_7"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(glmnet)
+library(pls)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(caret)
+library(leaps)
+library(MASS)
+library(caTools)
+```
+
+# Data Exploration
+```{r}
+#CountyDataClean2<-read.csv("CountyDataClean2.csv",header = TRUE,sep=",")
+#names(CountyDataClean2)
+Trump16 = CountyDataClean2[, c(4, 18, 21:26, 28, 30, 32:38, 49:53)]
+Trump16$ptrump16<-Trump16$percentage16_Donald_Trump
+#names(Trump16)
+Trump16<-Trump16[,-1]
+
+
+
+dim(Trump16)
+head(Trump16)
+any(is.na(Trump16))
+colSums(is.na(Trump16))
+
+Trump16Reg <- Trump16[,c(1:20,22)]
+Trump16Class <- Trump16[,1:21]
+
+Trump20 = CountyDataClean2[, c(9,18, 21:26, 28, 30, 32:38, 49:52,54)]
+#names(Trump20)
+Trump20$ptrump20<-Trump20$percentage20_Donald_Trump
+Trump20<-Trump20[,-1]
+
+dim(Trump20)
+head(Trump20)
+any(is.na(Trump20))
+colSums(is.na(Trump20))
+
+Trump20Reg <- Trump20[,c(1:20,22)]
+Trump20Class <- Trump20[,1:21]
+```
+```{r}
+#names(Trump16)
+```
+
+#Ridge Model 2016
+
+```{r}
+set.seed(420)
+smp_size <- floor(0.80 * nrow(Trump16Reg))
+
+train <- sample(seq_len(nrow(Trump16Reg)), size = smp_size)
+
+training16 <- Trump16Reg[train, ]
+test16 <- Trump16Reg[-train, ]
+
+x16 <- model.matrix(ptrump16 ~ ., data = training16)[,-1]
+y16 <- training16$ptrump16
+```
+
+```{r}
+lambdaVals <- 10 ^ seq(10, -2, length = 200)
+ridge.mod16 <- glmnet(x16, y16, alpha = 0, lambda = lambdaVals)
+plot(ridge.mod16, xvar = "lambda", label = TRUE)
+
+cv.ridge16 <- cv.glmnet(x16, y16, alpha = 0, lambda = 10 ^ seq(10, -15, length.out = 1000))
+cv.ridge16$lambda.min
+plot(ridge.mod16)
+bestlamRidge16 <- cv.ridge16$lambda.min
+bestlamRidge16
+```
+
+## Estimate best ridge model using all data
+```{r}
+coefRidge16 <- predict(glmnet(x16, y16, alpha = 0),
+                       s = bestlamRidge16,
+                       type = "coefficients")
+coefRidge16
+plot(cv.ridge16)
+errorRidge16 <- cv.ridge16$cvm[cv.ridge16$lambda == bestlamRidge16]
+errorRidge16
+
+ridge.mod16 <- glmnet(x16, y16, alpha = 0, lambda = bestlamRidge16)
+
+testx16 <- model.matrix(ptrump16 ~ ., data = test16)[,-1]
+ridgetest16 = test16
+ridgetest16$predictions = predict.glmnet(ridge.mod16, newx = testx16, type = "response")
+ridgetest16 = ridgetest16 %>% relocate(predictions, .after = ptrump16)
+ridgetest16$diff = abs(ridgetest16$ptrump16-ridgetest16$predictions)
+ridgetest16 = ridgetest16 %>% relocate(diff, .after = predictions)
+hist(ridgetest16$diff)
+
+MSERidge16 = mean((ridgetest16$ptrump16 - ridgetest16$predictions) ^2)
+MSERidge16
+
+```
+
+#Linear Model 2016
+```{r}
+linearmodel = lm(ptrump16 ~ TotalPop + Hispanic + Black + Native + Asian + Income + IncomePerCap + Poverty + ChildPoverty + Professional + Office + Construction
+                 + Production + SelfEmployed + Unemployment + RatioMenWomen, data = training16)
+
+summary(linearmodel)
+plot(linearmodel)
+
+predictions = predict(linearmodel, test16)
+
+lineartest = test16
+lineartest$predictions = predictions
+lineartest = lineartest %>% relocate(predictions, .after = ptrump16)
+
+lineartest$diff = abs(lineartest$ptrump16-lineartest$predictions)
+lineartest = lineartest %>% relocate(diff, .after = predictions)
+
+hist(lineartest$diff)
+mean((lineartest$ptrump16 - lineartest$predictions)^2)
+
+```
+
+#2020 ridge
+```{r}
+set.seed(420)
+smp_size <- floor(0.80 * nrow(Trump20Reg))
+
+train <- sample(seq_len(nrow(Trump20Reg)), size = smp_size)
+
+training20 <- Trump20Reg[train, ]
+test20 <- Trump20Reg[-train, ]
+
+```
+
+```{r}
+x20 <- model.matrix(ptrump20 ~ ., data = training20)[,-1]
+y20 <- training20$ptrump20
+## create grid of lambda values:
+## From 10^10 down to 10^-2 = 0.1
+lambdaVals <- 10 ^ seq(10, -2, length = 200)
+ridge.mod20 <- glmnet(x20, y20, alpha = 0, lambda = lambdaVals)
+plot(ridge.mod20, xvar = "lambda", label = TRUE)
+
+cv.ridge20 <- cv.glmnet(x20, y20, alpha = 0, lambda = 10 ^ seq(10, -15, length.out = 1000))
+cv.ridge20$lambda.min
+plot(ridge.mod20)
+bestlamRidge20 <- cv.ridge20$lambda.min
+bestlamRidge20
+```
+
+```{r}
+## Estimate best ridge model using all data
+coefRidge20 <- predict(glmnet(x20, y20, alpha = 0),
+                       s = bestlamRidge20,
+                       type = "coefficients")
+coefRidge20
+plot(cv.ridge20)
+errorRidge20 <- cv.ridge20$cvm[cv.ridge20$lambda == bestlamRidge20]
+errorRidge20
+
+ridge.mod20 <- glmnet(x20, y20, alpha = 0, lambda = bestlamRidge20)
+
+testx20 <- model.matrix(ptrump20 ~ ., data = test20)[,-1]
+ridgetest20 = test20
+ridgetest20$predictions = predict.glmnet(ridge.mod20, newx = testx20, type = "response")
+ridgetest20 = ridgetest20 %>% relocate(predictions, .after =  ptrump20)
+ridgetest20$diff = abs(ridgetest20$ptrump20-ridgetest20$predictions)
+ridgetest20 = ridgetest20 %>% relocate(diff, .after = predictions)
+hist(ridgetest20$diff)
+
+MSERidge20 = mean((ridgetest20$ptrump20 - ridgetest20$predictions) ^2)
+MSERidge20
+
+coefRidge16
+coefRidge20
+str(coefRidge16)
+coefRidge16 - coefRidge20
+
+```
+
+
+# Logistic Regression
+
+```{r}
+# Encoding the target feature as factor
+Trump16Class$TrumpOrClinton <- as.factor(Trump16Class$TrumpOrClinton)
+Trump20Class$TrumpOrBiden <- as.factor(Trump20Class$TrumpOrBiden)
+```
+
+# Logistic Regression 2016
+
+## Splitting the 2016 dataset into the Training set and Test set
+```{r}
+set.seed(1234)
+split = sample.split(Trump16Class$TrumpOrClinton, SplitRatio = 0.80)
+training16 = subset(Trump16Class, split == TRUE)
+test16 = subset(Trump16Class, split == FALSE)
+#names(training16)
+# Feature Scaling
+training16[-21] = scale(training16[-21])
+test16[-21] = scale(test16[-21])
+```
+
+# Fitting Logistic Regression to the Training set
+
+```{r}
+# Fitting Logistic Regression to the Training set
+logreg.model2016 = glm(formula = TrumpOrClinton ~ .,
+                 family=binomial(link="logit"),
+                 data = training16)
+
+```
+
+
+```{r}
+summary(logreg.model2016)
+(logreg.model2016)$coefficient
+par(mar=c(1,1,1,1))
+graphics.off()
+plot(logreg.model2016)
+```
+
+```{r}
+Pred2016 <- ifelse(predict(logreg.model2016, newdata = test16, type = "response") > 0.5, "Trump", "Clinton")
+# summarize accuracy
+table(Pred2016, test16$TrumpOrClinton)
+
+confMat16 <-table(Pred2016, test16$TrumpOrClinton)
+confMat16
+Sens <- round(confMat16[2,2] / sum(confMat16[,2]), 4)
+Spec <- round(confMat16[1,1] / sum(confMat16[,1]), 4)
+Accuracy <- mean(test16$TrumpOrClinton == Pred2016)
+cat(paste("Sensitivity: ", Sens, "\n Specificity: ", Spec, "\n Accuracy: ",
+          Accuracy, sep = ""))
+
+```
+
+# Logistic Regression 2020
+
+## Splitting the 2020 dataset into the Training set and Test set
+```{r}
+set.seed(1234)
+split = sample.split(Trump20Class$TrumpOrBiden, SplitRatio = 0.80)
+training20 = subset(Trump20Class, split == TRUE)
+test20  = subset(Trump20Class, split == FALSE)
+
+# Feature Scaling
+training20[-21] = scale(training20[-21])
+test20 [-21] = scale(test20 [-21])
+```
+
+```{r}
+#names(training20)
+```
+
+
+# Fitting Logistic Regression to the Training set
+
+```{r}
+# Fitting Logistic Regression to the Training set
+logreg.model2020 = glm(formula = TrumpOrBiden ~ .,
+                 family=binomial(link="logit"),
+                 data = training20)
+
+```
+
+
+```{r}
+summary(logreg.model2020)
+(logreg.model2020)$coefficient
+par(mar=c(1,1,1,1))
+graphics.off()
+plot(logreg.model2020)
+
+```
+
+```{r}
+Pred2020 <- ifelse(predict(logreg.model2020, newdata = test20 , type = "response") > 0.5, "Biden", "Trump")
+# summarize accuracy
+table(Pred2020, test20$TrumpOrBiden)
+
+confMat20 <-table(Pred2020, test20$TrumpOrBiden)
+confMat20
+Sens <- round(confMat20[2,2] / sum(confMat20[,2]), 4)
+Spec <- round(confMat20[1,1] / sum(confMat20[,1]), 4)
+Accuracy <- mean(test20$TrumpOrBiden == Pred2020)
+cat(paste("Sensitivity: ", Sens, "\n Specificity: ", Spec, "\n Accuracy: ",
+          Accuracy, sep = ""))
+
+```
+
+# Using LDA 2016
+# Splitting the 2016 dataset into the Training set and Test set
+
+```{r}
+set.seed(1234)
+split = sample.split(Trump16Class$TrumpOrClinton, SplitRatio = 0.80)
+training16 = subset(Trump16Class, split == TRUE)
+test16 = subset(Trump16Class, split == FALSE)
+#names(training16)
+# Feature Scaling
+training16[-21] = scale(training16[-21])
+test16[-21] = scale(test16[-21])
+```
+
+
+```{r}
+lda.model16<- lda(TrumpOrClinton~.,data=training16,family=binomial(link="logit"),)
+```
+
+```{r}
+#summary(lda.model16)
+lda.model16.pred <- predict(lda.model16, test16)
+lda.model16.confusion<-table(lda.model16.pred$class,test16$TrumpOrClinton)
+lda.model16.confusion
+Sens <- round(lda.model16.confusion[2,2] / sum(lda.model16.confusion[,2]), 4)
+Spec <- round(lda.model16.confusion[1,1] / sum(lda.model16.confusion[,1]), 4)
+Accuracy <- mean(test16$TrumpOrClinton == lda.model16.pred$class)
+cat(paste("Sensitivity: ", Sens, "\n Specificity: ", Spec, "\n Accuracy: ",
+          Accuracy, sep = ""))
+```
+
+
+# Using LDA 2020
+# Splitting the 2020 dataset into the Training set and Test set
+```{r}
+set.seed(1234)
+split = sample.split(Trump20Class$TrumpOrBiden, SplitRatio = 0.80)
+training20 = subset(Trump20Class, split == TRUE)
+test20  = subset(Trump20Class, split == FALSE)
+#names(training20)
+# Feature Scaling
+training20[-21] = scale(training20[-21])
+test20 [-21] = scale(test20 [-21])
+```
+
+
+```{r}
+lda.model20<- lda(TrumpOrBiden~.,data=training20,family=binomial(link="logit"),)
+```
+
+```{r}
+#summary(lda.model20)
+lda.model20.pred <- predict(lda.model20, test20 )
+lda.model20.confusion<-table(lda.model20.pred$class,test20 $TrumpOrBiden)
+lda.model20.confusion
+Sens <- round(lda.model20.confusion[2,2] / sum(lda.model20.confusion[,2]), 4)
+Spec <- round(lda.model20.confusion[1,1] / sum(lda.model20.confusion[,1]), 4)
+Accuracy <- mean(test20 $TrumpOrBiden == lda.model20.pred$class)
+cat(paste("Sensitivity: ", Sens, "\n Specificity: ", Spec, "\n Accuracy: ",
+          Accuracy, sep = ""))
+```
+
+
+# Using  QDA 2016
+# Splitting the 2016 dataset into the Training set and Test set
+```{r}
+set.seed(1234)
+split = sample.split(Trump16Class$TrumpOrClinton, SplitRatio = 0.80)
+training16 = subset(Trump16Class , split == TRUE)
+test16  = subset(Trump16Class , split == FALSE)
+#names(training16 )
+# Feature Scaling
+training16 [-21] = scale(training16 [-21])
+test16 [-21] = scale(test16 [-21])
+```
+
+```{r}
+qda.model16<-qda(TrumpOrClinton~.,data=training16,family=binomial(link="logit"),)
+```
+
+```{r}
+#summary(qda.model16)
+qda.model16.pred <- predict(qda.model16, test16)
+qda.model16.confusion<-table(qda.model16.pred$class, test16$TrumpOrClinton)
+qda.model16.confusion
+Sens <- round(qda.model16.confusion[2,2] / sum(qda.model16.confusion[,2]), 4)
+Spec <- round(qda.model16.confusion[1,1] / sum(qda.model16.confusion[,1]), 4)
+Accuracy <- mean(test16$TrumpOrClinton == qda.model16.pred$class)
+cat(paste("Sensitivity: ", Sens, "\n Specificity: ", Spec, "\n Accuracy: ",
+          Accuracy, sep = ""))
+
+```
+
+
+# Using QDA 2020
+# Splitting the 2020 dataset into the Training set and Test set
+```{r}
+set.seed(1234)
+split = sample.split(Trump20Class$TrumpOrBiden, SplitRatio = 0.80)
+training20 = subset(Trump20Class, split == TRUE)
+test20  = subset(Trump20Class, split == FALSE)
+#names(training20)
+# Feature Scaling
+training20[-21] = scale(training20[-21])
+test20 [-21] = scale(test20 [-21])
+```
+
+```{r}
+qda.model20<- qda(TrumpOrBiden~.,data=training20,family=binomial(link="logit"),)
+```
+
+```{r}
+#summary(qda.model20)
+qda.model20.pred <- predict(qda.model20, test20 )
+qda.model20.confusion<-table(qda.model20.pred$class, test20$TrumpOrBiden)
+qda.model20.confusion
+
+Sens <- round(qda.model20.confusion[2,2] / sum(qda.model20.confusion[,2]), 4)
+Spec <- round(qda.model20.confusion[1,1] / sum(qda.model20.confusion[,1]), 4)
+Accuracy <- mean(test20 $TrumpOrBiden == qda.model20.pred$class)
+cat(paste("Sensitivity: ", Sens, "\n Specificity: ", Spec, "\n Accuracy: ",
+          Accuracy, sep = ""))
+
+```
+
+# regsubset 2016
+```{r}
+regmodel2016<-regsubsets(ptrump16 ~ ., data = Trump16Reg, nvmax = 22)
+summary(regmodel2016)$outmat
+par(mfrow=c(1,1))
+plot(regmodel2016)
+regmodel_Cp<-summary(regmodel2016)$cp
+regmodel_Cp
+regmodel_bic<-summary(regmodel2016)$bic
+regmodel_bic
+regmodel_adjr2<-summary(regmodel2016)$adjr2
+regmodel_adjr2
+regmodel_r2<-summary(regmodel2016)$rsq
+regmodel_r2
+```
+
+```{r}
+## Create data.frame of results
+regmodel2016DF <- data.frame(numVars = 1:20, Cp = regmodel_Cp, 
+                             BIC = regmodel_bic,
+                             Adjr2 = regmodel_adjr2,
+                             r2 = regmodel_r2)
+regmodel2016DF
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+plot(regmodel_Cp,main= "model plot with Cp",xlab="covariates",ylab="Cp",type="l")
+points(which.min(regmodel_Cp),regmodel_Cp[which.min(regmodel_Cp)],col="red",cex=1,pch=16)
+
+plot(regmodel_bic,main = "model plot with BIC",xlab="covariates",ylab="BIC",type="l")
+points(which.min(regmodel_bic),regmodel_bic[which.min(regmodel_bic)],col="red",cex=1,pch=16)
+
+plot(regmodel_adjr2,main = "model plot with adjusted  R^2",xlab="covariates",ylab="Adj R^2",type="l")
+points(which.max(regmodel_adjr2),regmodel_adjr2[which.max(regmodel_adjr2)],col="red",cex=1,pch=16)
+
+plot(regmodel_r2,main = "model plot with R^2",xlab="covariates",ylab="R^2",type="l")
+points(which.max(regmodel_r2),regmodel_r2[which.max(regmodel_r2)],col="red",cex=1,pch=16)
+
+```
+```{r}
+cp_coef<-coef(regmodel2016,which.min(regmodel_Cp))
+cp_coef
+bic_coef<-coef(regmodel2016,which.min(regmodel_bic))
+bic_coef
+adjr2_coef<-coef(regmodel2016,which.max(regmodel_adjr2))
+adjr2_coef
+r2_coef<-coef(regmodel2016,which.max(regmodel_r2))
+r2_coef
+```
+
+# forward 2016
+```{r}
+forward.model2016<- regsubsets(ptrump16 ~ ., data = Trump16Reg, method ="forward", nvmax = 21)
+summary(forward.model2016)
+#plot(forward.model2016)
+
+fwdmod_cp<-summary(forward.model2016)$cp
+fwdmod_cp
+fwdmod_bic<-summary(forward.model2016)$bic
+fwdmod_bic
+fwdmod_adjr2<-summary(forward.model2016)$adjr2
+fwdmod_adjr2
+fwdmod_r2<-summary(forward.model2016)$rsq
+fwdmod_r2
+fwdmodel2016DF <- data.frame(numVars = 1:20, Cp = fwdmod_cp, 
+                             BIC = fwdmod_bic,
+                             Adjr2 = fwdmod_adjr2,
+                             r2 = fwdmod_r2)
+fwdmodel2016DF
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+plot(fwdmod_cp,main= "model plot with Cp",xlab="covariates",ylab="Cp",type="l")
+points(which.min(fwdmod_cp),fwdmod_cp[which.min(fwdmod_cp)],col="blue",cex=1,pch=16)
+
+plot(fwdmod_bic,main = "model plot with BIC",xlab="covariates",ylab="BIC",type="l")
+points(which.min(fwdmod_bic),fwdmod_bic[which.min(fwdmod_bic)],col="blue",cex=1,pch=16)
+
+plot(fwdmod_adjr2,main = "model plot with adjusted  R^2",xlab="covariates",ylab="Adj R^2",type="l")
+points(which.max(fwdmod_adjr2),fwdmod_adjr2[which.max(fwdmod_adjr2)],col="blue",cex=1,pch=16)
+
+plot(fwdmod_r2,main = "model plot with R^2",xlab="covariates",ylab="R^2",type="l")
+points(which.max(fwdmod_r2),fwdmod_r2[which.max(fwdmod_r2)],col="blue",cex=1,pch=16)
+
+```
+```{r}
+cp_coef<-coef(forward.model2016,which.min(fwdmod_cp))
+cp_coef
+bic_coef<-coef(forward.model2016,which.min(fwdmod_bic))
+bic_coef
+adjr2_coef<-coef(forward.model2016,which.max(fwdmod_adjr2))
+adjr2_coef
+r2_coef<-coef(forward.model2016,which.max(fwdmod_r2))
+r2_coef
+```
+
+# backward 2016
+```{r}
+backward.model2016<-regsubsets(ptrump16 ~ ., data = Trump16Reg, method ="backward", nvmax = 21)
+summary(backward.model2016)
+#plot(backward.model2016)
+
+bwdmod_cp<-summary(backward.model2016)$cp
+bwdmod_cp
+bwdmod_bic<-summary(backward.model2016)$bic
+bwdmod_bic
+bwdmod_adjr2<-summary(backward.model2016)$adjr2
+bwdmod_adjr2
+bwdmod_r2<-summary(backward.model2016)$rsq
+bwdmod_r2
+bwdmodel2016DF <- data.frame(numVars = 1:20, Cp = bwdmod_cp, 
+                             BIC = bwdmod_bic,
+                             Adjr2 = bwdmod_adjr2,
+                             r2 = bwdmod_r2)
+bwdmodel2016DF
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+plot(bwdmod_cp,main= "model plot with Cp",xlab="covariates",ylab="Cp",type="l")
+points(which.min(bwdmod_cp),bwdmod_cp[which.min(bwdmod_cp)],col="green",cex=1,pch=16)
+
+plot(bwdmod_bic,main = "model plot with BIC",xlab="covariates",ylab="BIC",type="l")
+points(which.min(bwdmod_bic),bwdmod_bic[which.min(bwdmod_bic)],col="green",cex=1,pch=16)
+
+plot(bwdmod_adjr2,main = "model plot with adjusted  R^2",xlab="covariates",ylab="Adj R^2",type="l")
+points(which.max(bwdmod_adjr2),bwdmod_adjr2[which.max(bwdmod_adjr2)],col="green",cex=1,pch=16)
+
+plot(bwdmod_r2,main = "model plot with R^2",xlab="covariates",ylab="R^2",type="l")
+points(which.max(bwdmod_r2),bwdmod_r2[which.max(bwdmod_r2)],col="green",cex=1,pch=16)
+
+```
+
+```{r}
+cp_coef<-coef(backward.model2016,which.min(bwdmod_cp))
+bic_coef<-coef(backward.model2016,which.min(bwdmod_bic))
+adjr2_coef<-coef(backward.model2016,which.max(bwdmod_adjr2))
+r2_coef<-coef(backward.model2016,which.max(bwdmod_r2))
+cp_coef
+bic_coef
+adjr2_coef
+r2_coef
+```
+
+# regsubset 2020
+
+```{r}
+regmodel2020<-regsubsets(ptrump20 ~ ., data = Trump20Reg, nvmax = 22)
+summary(regmodel2020)$outmat
+par(mfrow=c(1,1))
+plot(regmodel2020)
+regmodel_Cp<-summary(regmodel2020)$cp
+regmodel_Cp
+regmodel_bic<-summary(regmodel2020)$bic
+regmodel_bic
+regmodel_adjr2<-summary(regmodel2020)$adjr2
+regmodel_adjr2
+regmodel_r2<-summary(regmodel2020)$rsq
+regmodel_r2
+```
+
+```{r}
+## Create data.frame of results
+regmodel2020DF <- data.frame(numVars = 1:20, Cp = regmodel_Cp, 
+                             BIC = regmodel_bic,
+                             Adjr2 = regmodel_adjr2,
+                             r2 = regmodel_r2)
+regmodel2020DF
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(regmodel_Cp,main= "model plot with Cp",xlab="covariates",ylab="Cp",type="l")
+points(which.min(regmodel_Cp),regmodel_Cp[which.min(regmodel_Cp)],col="red",cex=1,pch=16)
+
+plot(regmodel_bic,main = "model plot with BIC",xlab="covariates",ylab="BIC",type="l")
+points(which.min(regmodel_bic),regmodel_bic[which.min(regmodel_bic)],col="red",cex=1,pch=16)
+
+plot(regmodel_adjr2,main = "model plot with adjusted  R^2",xlab="covariates",ylab="Adj R^2",type="l")
+points(which.max(regmodel_adjr2),regmodel_adjr2[which.max(regmodel_adjr2)],col="red",cex=1,pch=16)
+
+plot(regmodel_r2,main = "model plot with R^2",xlab="covariates",ylab="R^2",type="l")
+points(which.max(regmodel_r2),regmodel_r2[which.max(regmodel_r2)],col="red",cex=1,pch=16)
+
+```
+
+```{r}
+cp_coef<-coef(regmodel2020,which.min(regmodel_Cp))
+cp_coef
+bic_coef<-coef(regmodel2020,which.min(regmodel_bic))
+bic_coef
+adjr2_coef<-coef(regmodel2020,which.max(regmodel_adjr2))
+adjr2_coef
+r2_coef<-coef(regmodel2020,which.max(regmodel_r2))
+r2_coef
+```
+
+# forward 2020
+```{r}
+forward.model2020<- regsubsets( ptrump20 ~ ., data = Trump20Reg, method ="forward", nvmax = 21)
+summary(forward.model2020)
+#plot(forward.model2020)
+
+fwdmod_cp<-summary(forward.model2020)$cp
+fwdmod_cp
+fwdmod_bic<-summary(forward.model2020)$bic
+fwdmod_bic
+fwdmod_adjr2<-summary(forward.model2020)$adjr2
+fwdmod_adjr2
+fwdmod_r2<-summary(forward.model2020)$rsq
+fwdmod_r2
+fwdmodel2020DF <- data.frame(numVars = 1:20, Cp = fwdmod_cp, 
+                             BIC = fwdmod_bic,
+                             Adjr2 = fwdmod_adjr2,
+                             r2 = fwdmod_r2)
+fwdmodel2020DF
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+plot(fwdmod_cp,main= "model plot with Cp",xlab="covariates",ylab="Cp",type="l")
+points(which.min(fwdmod_cp),fwdmod_cp[which.min(fwdmod_cp)],col="blue",cex=1,pch=16)
+
+plot(fwdmod_bic,main = "model plot with BIC",xlab="covariates",ylab="BIC",type="l")
+points(which.min(fwdmod_bic),fwdmod_bic[which.min(fwdmod_bic)],col="blue",cex=1,pch=16)
+
+plot(fwdmod_adjr2,main = "model plot with adjusted  R^2",xlab="covariates",ylab="Adj R^2",type="l")
+points(which.max(fwdmod_adjr2),fwdmod_adjr2[which.max(fwdmod_adjr2)],col="blue",cex=1,pch=16)
+
+plot(fwdmod_r2,main = "model plot with R^2",xlab="covariates",ylab="R^2",type="l")
+points(which.max(fwdmod_r2),fwdmod_r2[which.max(fwdmod_r2)],col="blue",cex=1,pch=16)
+
+```
+
+```{r}
+cp_coef<-coef(forward.model2020,which.min(fwdmod_cp))
+cp_coef
+bic_coef<-coef(forward.model2020,which.min(fwdmod_bic))
+bic_coef
+adjr2_coef<-coef(forward.model2020,which.max(fwdmod_adjr2))
+adjr2_coef
+r2_coef<-coef(forward.model2020,which.max(fwdmod_r2))
+r2_coef
+```
+
+# backward 2020
+```{r}
+backward.model2020<-regsubsets(ptrump20 ~ ., data = Trump20Reg, method ="backward", nvmax = 21)
+summary(backward.model2020)
+plot(backward.model2020)
+
+bwdmod_cp<-summary(backward.model2020)$cp
+bwdmod_cp
+bwdmod_bic<-summary(backward.model2020)$bic
+bwdmod_bic
+bwdmod_adjr2<-summary(backward.model2020)$adjr2
+bwdmod_adjr2
+bwdmod_r2<-summary(backward.model2020)$rsq
+bwdmod_r2
+bwdmodel2020DF <- data.frame(numVars = 1:20, Cp = bwdmod_cp, 
+                             BIC = bwdmod_bic,
+                             Adjr2 = bwdmod_adjr2,
+                             r2 = bwdmod_r2)
+bwdmodel2020DF
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+plot(bwdmod_cp,main= "model plot with Cp",xlab="covariates",ylab="Cp",type="l")
+points(which.min(bwdmod_cp),bwdmod_cp[which.min(bwdmod_cp)],col="green",cex=1,pch=16)
+
+plot(bwdmod_bic,main = "model plot with BIC",xlab="covariates",ylab="BIC",type="l")
+points(which.min(bwdmod_bic),bwdmod_bic[which.min(bwdmod_bic)],col="green",cex=1,pch=16)
+
+plot(bwdmod_adjr2,main = "model plot with adjusted  R^2",xlab="covariates",ylab="Adj R^2",type="l")
+points(which.max(bwdmod_adjr2),bwdmod_adjr2[which.max(bwdmod_adjr2)],col="green",cex=1,pch=16)
+
+plot(bwdmod_r2,main = "model plot with R^2",xlab="covariates",ylab="R^2",type="l")
+points(which.max(bwdmod_r2),bwdmod_r2[which.max(bwdmod_r2)],col="green",cex=1,pch=16)
+
+```
+
+```{r}
+cp_coef<-coef(backward.model2020,which.min(bwdmod_cp))
+bic_coef<-coef(backward.model2020,which.min(bwdmod_bic))
+adjr2_coef<-coef(backward.model2020,which.max(bwdmod_adjr2))
+r2_coef<-coef(backward.model2020,which.max(bwdmod_r2))
+cp_coef
+bic_coef
+adjr2_coef
+r2_coef
+
+```
+
+# SVM MODELS
+```{r}
+library(caret)
+# install.packages('e1071')
+library(e1071)
+```
+
+# 2016 SVM
+# Splitting the dataset into the Training set and Test set
+```{r}
+set.seed(1234)
+split = sample.split(Trump16Class$TrumpOrClinton, SplitRatio = 0.80)
+training16 = subset(Trump16Class, split == TRUE)
+test16 = subset(Trump16Class, split == FALSE)
+#names(training16)
+# Feature Scaling
+training16[-21] = scale(training16[-21])
+test16[-21] = scale(test16[-21])
+```
+
+
+```{r}
+# Fitting SVM to the Training set
+svm.model16 = svm(formula = TrumpOrClinton ~.,
+                 data = training16,
+                 type = 'C-classification',
+                 kernel = 'linear')
+
+summary(svm.model16)
+#svm.model16$index
+#print(svm.model16$best.parameters)
+```
+
+```{r}
+# Predicting the Test set results
+svm.pred16 = predict(svm.model16, newdata = test16[-21])
+
+# Making the Confusion Matrix
+confmat16 = table(test16[, 21], svm.pred16)
+confmat16
+## test error
+mean(svm.pred16 != test16$TrumpOrClinton)
+## test accuracy
+mean(svm.pred16 == test16$TrumpOrClinton)
+
+#plot(training16, svm.pred16)
+```
+# tuning2016 
+```{r}
+set.seed(1234)
+svm1.model16 = svm(formula = TrumpOrClinton ~.,
+                  data = training16,
+                  type = 'C-classification',
+                  kernel = 'linear',cost = 10, scale = FALSE)
+
+summary(svm1.model16)
+svm1.model16$index
+#print(svm1.model16$best.parameters)
+```
+
+```{r}
+# Predicting the Test set results
+svm1.pred16 = predict(svm1.model16, newdata = test16[-21])
+
+# Making the Confusion Matrix
+confmat1.16 = table(test16[, 21], svm1.pred16)
+confmat1.16
+## test error
+mean(svm1.pred16 != test16$TrumpOrClinton)
+## test accuracy
+mean(svm1.pred16 == test16$TrumpOrClinton)
+
+#plot(training16, svm.pred16)
+```
+
+## can tune multiple functions
+
+```{r}
+
+set.seed(1234)
+
+tuneModel16 <- tune(svm, TrumpOrClinton ~., data = training16,
+                    type = 'C-classification',
+                    kernel = "linear",
+                   ranges = list(cost = c(0.001, 0.01, 0.1,
+                                          1, 5, 10, 100, 1000)))
+
+# Predicting the Test set results
+
+bestSVM16 <- tuneModel16$best.model
+
+bestSVM16
+
+svmTune.pred16 = predict(bestSVM16, newdata = test16[-21])
+
+# Making the Confusion Matrix
+confmattune.16 = table(test16[, 21], svmTune.pred16)
+confmattune.16
+## test error
+mean(svmTune.pred16 != test16$TrumpOrClinton)
+## test accuracy
+mean(svmTune.pred16 == test16$TrumpOrClinton)
+```
+
+# 2020 SVM
+```{r}
+set.seed(1234)
+split = sample.split(Trump20Class$TrumpOrBiden, SplitRatio = 0.80)
+training20 = subset(Trump20Class, split == TRUE)
+test20  = subset(Trump20Class, split == FALSE)
+#names(training20)
+# Feature Scaling
+training20[-21] = scale(training20[-21])
+test20 [-21] = scale(test20 [-21])
+```
+
+```{r}
+# Fitting SVM to the Training set
+svm.model20 = svm(formula = TrumpOrBiden ~.,
+                  data = training20,
+                  type = 'C-classification',
+                  kernel = 'linear')
+summary(svm.model20)
+svm.model20$index
+# Predicting the Test set results
+svm.pred20 = predict(svm.model20, newdata = test20 [-21])
+# Making the Confusion Matrix
+confmat20 = table(test20 [, 21], svm.pred20)
+confmat20
+
+## test error
+mean(svm.pred20 != test20 $TrumpOrBiden)
+## test accuracy
+mean(svm.pred20 == test20 $TrumpOrBiden)
+#plot(training20, svm.pred20)
+```
+
+# tuning 2020 
+```{r}
+set.seed(1234)
+svm1.model20 = svm(formula = TrumpOrBiden ~.,
+                   data = training20,
+                   type = 'C-classification',
+                   kernel = 'linear',cost = 10, scale = FALSE)
+
+#summary(svm1.model20)
+#svm1.model20$index
+#print(svm1.model20$best.parameters)
+
+```
+
+```{r}
+# Predicting the Test set results
+svm1.pred20 = predict(svm1.model20, newdata = test20 [-21])
+
+# Making the Confusion Matrix
+confmat1.20 = table(test20 [, 21], svm1.pred20)
+confmat1.20
+## test error
+mean(svm1.pred20 != test20$TrumpOrBiden)
+## test accuracy
+mean(svm1.pred20 == test20$TrumpOrBiden)
+
+#plot(training20, svm1.pred20)
+```
+
+## tune multiple functions
+```{r}
+
+set.seed(1234)
+tuneModel20 <- tune(svm, TrumpOrBiden ~., data = training20,
+                    type = 'C-classification',
+                    kernel = "linear",
+                    ranges = list(cost = c(0.001, 0.01, 0.1,
+                                           1, 5, 10, 100, 1000)))
+```
+
+
+```{r}
+# Predicting the Test set results
+bestSVM20 <- tuneModel20$best.model
+bestSVM20
+svmTune.pred20 = predict(bestSVM20, newdata = test20 [-21])
+
+# Making the Confusion Matrix
+confmattune.20 = table(test20 [, 21], svmTune.pred20)
+confmattune.20
+## test error
+mean(svmTune.pred20 != test20 $TrumpOrBiden)
+## test accuracy
+mean(svmTune.pred20 == test20 $TrumpOrBiden)
+```
+
+# Tree models 
+
+```{r}
+library(tree)
+library(randomForest)
+library(gbm)
+
+```
+
+# 2016
+```{r}
+set.seed(1234)
+split = sample.split(Trump16Class$TrumpOrClinton, SplitRatio = 0.80)
+training16 = subset(Trump16Class, split == TRUE)
+test16 = subset(Trump16Class, split == FALSE)
+#names(training16)
+# Feature Scaling
+training16[-21] = scale(training16[-21])
+test16[-21] = scale(test16[-21])
+```
+
+
+```{r}
+treeMod16 <- tree(TrumpOrClinton ~ ., data = training16)
+summary(treeMod16 )
+plot(treeMod16 )
+## Can't read the labels very well
+text(treeMod16 , pretty = 0, cex = 0.5)
+treeMod16
+predictionstree = predict(treeMod16 , newdata = test16, type = "class")
+mean(predictionstree != test16$TrumpOrClinton)
+
+set.seed(1234)
+cv.treeMod16 <- cv.tree(treeMod16, FUN=prune.misclass, K = 10)
+cv.treeMod16
+```
+
+```{r}
+#Pruned tree
+prune.misclass(treeMod16)
+plot(y = cv.treeMod16$dev, x = cv.treeMod16$size, type = "l")
+
+pruneTree <- prune.misclass(treeMod16, best = 9)
+plot(pruneTree)
+text(pruneTree)
+
+predictions = predict(pruneTree, newdata = test16, type = "class")
+mean(predictions != test16$TrumpOrClinton)
+
+```
+
+```{r}
+#Bagging
+
+set.seed(1234)
+bagModel2016 <- randomForest(TrumpOrClinton ~ ., data = training16, mtry = 20, 
+                         importance = T)
+bagModel2016$importance
+varImpPlot(bagModel2016)
+
+predictionsbag = predict(bagModel2016, newdata = test16, type = "class")
+mean(predictionsbag != test16$TrumpOrClinton)
+```
+
+```{r}
+#Random Forest
+
+rfModel5 <- randomForest(TrumpOrClinton ~ ., data = training16, mtry = 5, importance = T)
+rfModel10 <- randomForest(TrumpOrClinton ~ ., data = training16, mtry = 10, importance = T)
+rfModel15 <- randomForest(TrumpOrClinton ~ ., data = training16, mtry = 15, importance = T)
+
+
+predictionsrf10 = predict(rfModel10, newdata = test16, type = "class")
+mean(predictionsrf10 != test16$TrumpOrClinton)
+
+predictionsrf5 = predict(rfModel5, newdata = test16, type = "class")
+mean(predictionsrf5 != test16$TrumpOrClinton)
+
+predictionsrf15 = predict(rfModel15, newdata = test16, type = "class")
+mean(predictionsrf15 != test16$TrumpOrClinton)
+
+varImpPlot(rfModel5)
+#Mtry=10 works best
+```
+
+
+
+# 2020
+
+```{r}
+set.seed(1234)
+split = sample.split(Trump20Class$TrumpOrBiden, SplitRatio = 0.80)
+training20 = subset(Trump20Class, split == TRUE)
+test20  = subset(Trump20Class, split == FALSE)
+#names(training20)
+# Feature Scaling
+training20[-21] = scale(training20[-21])
+test20 [-21] = scale(test20 [-21])
+```
+
+
+```{r}
+treeMod20 <- tree(TrumpOrBiden ~ ., data = training20)
+summary(treeMod20)
+plot(treeMod20)
+## Can't read the labels very well
+text(treeMod20 , pretty = 0, cex = 0.5)
+treeMod20
+predictionstree = predict(treeMod20 , newdata = test20 , type = "class")
+mean(predictionstree != test20 $TrumpOrBiden)
+
+set.seed(1234)
+cv.treeMod20 <- cv.tree(treeMod20, FUN=prune.misclass, K = 10)
+cv.treeMod20
+```
+
+
+```{r}
+#Pruned tree
+prune.misclass(treeMod20)
+plot(y = cv.treeMod20$dev, x = cv.treeMod20$size, type = "l")
+
+pruneTree <- prune.misclass(treeMod20, best = 9)
+plot(pruneTree)
+text(pruneTree)
+
+predictions = predict(pruneTree, newdata = test20 , type = "class")
+mean(predictions != test20 $TrumpOrBiden)
+```
+
+```{r}
+
+#Bagging
+
+set.seed(1234)
+bagModel2020 <- randomForest(TrumpOrBiden ~ ., data = training20, mtry = 20, importance = T)
+bagModel2020$importance
+varImpPlot(bagModel2020)
+
+predictionsbag = predict(bagModel2020, newdata = test20 , type = "class")
+mean(predictionsbag != test20$TrumpOrBiden)
+```
+
+```{r}
+#Random Forest
+
+rfModel52020 <- randomForest(TrumpOrBiden ~ ., data = training20, mtry = 5, importance = T)
+rfModel10 <- randomForest(TrumpOrBiden ~ ., data = training20, mtry = 10, importance = T)
+rfModel15 <- randomForest(TrumpOrBiden ~ ., data = training20, mtry = 15, importance = T)
+
+
+predictionsrf10 = predict(rfModel10, newdata = test20 , type = "class")
+mean(predictionsrf10 != test20 $TrumpOrBiden)
+
+predictionsrf5 = predict(rfModel52020, newdata = test20 , type = "class")
+mean(predictionsrf5 != test20 $TrumpOrBiden)
+
+predictionsrf15 = predict(rfModel15, newdata = test20 , type = "class")
+mean(predictionsrf15 != test20$TrumpOrBiden)
+
+varImpPlot(rfModel52020)
+
+#Mtry = 5 works best
+```
+
+
+
+
